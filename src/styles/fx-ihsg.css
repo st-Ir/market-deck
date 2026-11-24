@@ -1,0 +1,57 @@
+/* USD/IDR vs IHSG comparison dialog. */
+.fx-ihsg-dialog .fx-coverage,.fx-ihsg-dialog .fx-method,.fx-ihsg-dialog .fx-source{font:9.5px/1.8 var(--mono);color:var(--muted)}
+.fx-ihsg-dialog .fx-coverage{margin-bottom:12px}
+.fx-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
+.fx-summary small{display:block;margin-top:4px;font:9px/1.6 var(--mono);color:var(--muted)}
+.fx-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.fx-toggle{padding:7px 11px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font:9px var(--mono)}
+.fx-toggle[aria-pressed=true]{color:var(--text);background:rgba(0,188,212,.1);border-color:rgba(0,188,212,.4)}
+.fx-panel+.fx-panel{margin-top:12px}
+.fx-legend span{white-space:nowrap}
+.fx-legend .fx-biased{color:var(--faint)}
+.fx-chart-svg{display:block;width:100%;height:auto;overflow:visible;touch-action:none;stroke:none}
+.fx-chart-svg text,.fx-chart-svg rect{stroke:none}
+.fx-chart-svg text{font:9px var(--mono);fill:var(--muted)}
+.fx-chart-svg .fx-axis-note{font-size:9.5px;fill:var(--faint)}
+.fx-grid{stroke:rgba(255,255,255,.07);stroke-width:1}
+.fx-zero{stroke:rgba(255,255,255,.2)}
+.fx-cursor{stroke:#ddd;stroke-dasharray:3 4;stroke-width:1}
+.fx-hit{cursor:crosshair}
+.fx-method{margin-top:12px;color:var(--faint)}
+.fx-source{margin-top:6px}
+.fx-source a{color:var(--text)}
+.fx-empty{padding:40px 0;text-align:center;color:var(--muted);font:10px var(--mono)}
+@media(max-width:700px){.fx-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.fx-summary>div:nth-child(3){border-left:0}.fx-summary>div:nth-child(n+3){border-top:1px solid var(--line)}}
+
+/* Turnover momentum dialog. */
+.tv-reading{font-size:11px;line-height:1.7;margin:-4px 0 14px;color:var(--text)}
+.tv-spikes{max-height:none}
+.tv-spikes td{font:9px/1.6 var(--mono)}
+.tv-spikes td b{font-weight:400;color:var(--text)}
+.tv-nego{color:#e9a91e;font-size:9.5px}
+
+/* Foreign-flow dialog. */
+.fx-chart-svg .fl-cum-axis{font-size:9.5px;fill:#cfcfcf}
+.foreign-dialog .fx-panel>header .history-periods{margin-left:auto}
+.fl-top{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:12px}
+.fl-top h4{font:9.5px/1.8 var(--mono);color:var(--muted);font-weight:400;margin-bottom:4px;text-transform:uppercase}
+.fl-top ol{list-style:none;padding:0;margin:0}
+.fl-top li{display:grid;grid-template-columns:18px 1fr auto;gap:8px;align-items:baseline;padding:5px 0;border-top:1px solid var(--line);font:10px var(--mono)}
+.fl-top li span{color:var(--faint)}
+.fl-top li b{font-weight:400;color:var(--text)}
+.fl-top li em{font-style:normal;font-variant-numeric:tabular-nums}
+@media(max-width:600px){.fl-top{grid-template-columns:1fr;gap:12px}}
+
+/* Live session in the turnover dialog. */
+.tv-live{color:var(--cyan)}
+.fx-chart-svg .tv-live-label{font-size:9px;fill:var(--cyan)}
+
+/* Commodity popup. */
+.commodity-stocks td{font:10px/1.5 var(--mono);font-variant-numeric:tabular-nums}
+.commodity-stocks td a{color:var(--text);text-decoration:none}
+.commodity-stocks td b{font-weight:400}
+.commodity-stocks td small{display:block;font:9px/1.5 var(--font);color:var(--muted)}
+.commodity-stocks th:not(:first-child),.commodity-stocks td:not(:first-child){text-align:right}
+.fx-coverage a{color:var(--text)}
+.commodity-curation{margin:0 0 12px;padding:9px 12px;border-left:2px solid #e9a91e;background:rgba(233,169,30,.06);font:10px/1.7 var(--mono);color:var(--muted)}
+.commodity-curation b{color:var(--text);font-weight:400}

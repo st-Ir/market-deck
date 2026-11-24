@@ -1,0 +1,239 @@
+/* Sector strip under Fear & Greed in the side column: icon + change chips in an
+   even 4-column grid (IHSG + 11 sectors = 3 rows), name in the popover. */
+.context-stack{display:flex;flex-direction:column;gap:10px;min-width:0}
+.sector-card{display:flex;flex-direction:column;gap:6px}
+.sector-card[hidden]{display:none}
+.sector-rows{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+.sector-chip{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:6px 4px;border-radius:4px;background:var(--tint);font:10px var(--mono);white-space:nowrap;min-width:0}
+.sector-chip svg{width:12px;height:12px;flex:none;color:var(--text);opacity:.85;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sector-chip em{font-style:normal;font-variant-numeric:tabular-nums}
+.sector-chip em.up{color:var(--cyan)}
+.sector-chip em.down{color:var(--pink)}
+.sector-ref-chip{box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}
+.sector-note{align-self:flex-end;font:9px var(--mono);color:var(--faint);white-space:nowrap}
+.sector-empty{grid-column:1/-1;font:10px var(--mono);color:var(--muted)}
+
+/* Market Fear & Greed as a disclosure with the score in its summary. */
+.sentiment-summary{cursor:pointer;list-style:none;padding-bottom:15px!important}
+.sentiment-summary::-webkit-details-marker{display:none}
+.sentiment-card:not([open]){padding-bottom:0}
+.sentiment-card[open] .sentiment-summary{padding-bottom:8px!important}
+.sentiment-compact{display:flex;align-items:baseline;gap:7px;margin-left:auto;font:10px var(--mono)}
+.sentiment-compact strong{font:500 13px var(--mono);font-variant-numeric:tabular-nums}
+.sentiment-card[open] .sentiment-compact strong,.sentiment-card[open] .sentiment-compact strong+span{display:none}
+.sentiment-chevron{width:14px;height:14px;color:var(--muted);transition:transform .15s;flex:none}
+.sentiment-card[open] .sentiment-chevron{transform:rotate(180deg)}
+
+.sentiment-parts{display:grid;grid-template-columns:repeat(2,1fr);gap:7px 14px;margin:14px 17px 0}
+.sentiment-parts:empty{display:none}
+.sentiment-part{display:grid;gap:4px;min-width:0}
+.sentiment-part>span{display:flex;align-items:baseline;justify-content:space-between;gap:5px}
+.sentiment-parts em{font:9px var(--mono);font-style:normal;color:var(--muted)}
+.sentiment-part b{font:9px var(--mono);color:var(--text)}
+.sentiment-parts i{display:block;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--c) var(--v),rgba(255,255,255,.08) var(--v))}
+.sentiment-source a{flex:none}
+.sentiment-source>span{text-align:right}
+.sentiment-method{margin:10px 17px 0;font:9px/1.65 var(--mono);color:var(--muted)}
+.sentiment-method summary{cursor:pointer;color:var(--text)}
+.sentiment-method p{margin-top:4px}
+.sentiment-card:is([data-status=loading],[data-status=unavailable]) .sentiment-reading{font:10px/1.8 var(--mono);color:var(--muted)}
+.sentiment-card:is([data-status=loading],[data-status=unavailable]) .sentiment-source{display:none}
+
+/* Live marker on snapshot cards during the BEI session. */
+.live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 0 0 rgba(0,188,212,.6);animation:live-pulse 1.6s infinite;vertical-align:middle}
+@keyframes live-pulse{0%{box-shadow:0 0 0 0 rgba(0,188,212,.55)}70%{box-shadow:0 0 0 6px rgba(0,188,212,0)}100%{box-shadow:0 0 0 0 rgba(0,188,212,0)}}
+@media(prefers-reduced-motion:reduce){.live-dot{animation:none}}
+
+
+
+/* Market status in the chart header (client/market-status.mjs): state symbol + live price. */
+.market-status{display:inline-flex;align-items:center;gap:7px;margin-left:auto;margin-right:10px;font:11px var(--mono);color:var(--text);white-space:nowrap;cursor:default}
+.market-status i{display:grid;place-items:center;width:7px;height:7px;border-radius:50%;background:#666;flex:none}
+.market-status i svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.market-status:not([data-state=open]) i{width:14px;height:14px;background:none;border-radius:0;color:var(--muted)}
+.market-status[data-state=open] i{background:var(--cyan);animation:live-pulse 1.6s infinite}
+.market-status:is([data-state=break],[data-state=pre]) i{color:#e9a91e}
+.market-status[data-state=holiday] i{color:var(--pink)}
+.market-status .ms-price{font-weight:400;font-variant-numeric:tabular-nums;padding:1px 3px;border-radius:3px}
+.market-status em{font-style:normal;font-size:10px;font-variant-numeric:tabular-nums}
+.market-status em.up{color:var(--cyan)}
+.market-status em.down{color:var(--pink)}
+@media(max-width:600px){
+ .market-status{font-size:10px;margin-right:2px;gap:6px}
+ /* Keep the tools and expand buttons inside the card; the status text gives way. */
+ .compact-chart-header{gap:6px}
+ .compact-chart-header .market-switch,.compact-chart-header .chart-controls{flex:none}
+ .compact-chart-header .chart-controls{gap:2px}
+}
+
+/* Candlestick charts (client/market-chart.mjs); toolbar is part of the chart tools. */
+.mchart{position:absolute;inset:0;display:flex;flex-direction:column}
+.mchart-toolbar{display:flex;align-items:center;gap:12px;padding:8px 10px;border-bottom:1px solid #292929;flex-wrap:wrap}
+.chart-card:not(.tools-open) .mchart-toolbar{display:none}
+.mchart-intervals{display:flex;gap:3px}
+.mchart-intervals button{padding:4px 9px;border-radius:3px;color:var(--muted);font:10px var(--mono)}
+.mchart-intervals button[aria-pressed=true]{color:var(--text);background:rgba(0,188,212,.12);box-shadow:inset 0 -1px var(--cyan)}
+.mchart-legend{font:10px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.mchart-legend b{color:var(--text);font-weight:400}
+.mchart-legend em{font-style:normal}
+.mchart-legend em.up{color:var(--cyan)}
+.mchart-legend em.down{color:var(--pink)}
+.mchart-live{color:var(--cyan)}
+.mchart-canvas{flex:1;min-height:0;position:relative}
+
+/* Sector chips are buttons: one click → popover, double click → heatmap. */
+.sector-chip{border:0;color:inherit;cursor:pointer;user-select:none}
+.sector-chip:hover{filter:brightness(1.25)}
+.sector-chip:focus-visible{outline:1px solid var(--cyan);outline-offset:1px}
+.sector-pop{position:fixed;z-index:60;width:max-content;max-width:min(280px,calc(100vw - 16px));padding:10px 12px;border:1px solid var(--gray);border-radius:7px;background:var(--bg);box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.sector-pop[hidden]{display:none}
+.sector-pop-head{display:flex;align-items:center;gap:7px;font-size:12px}
+.sector-pop-head svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--muted)}
+.sector-pop-head b{font-weight:500}
+.sector-pop-head em{margin-left:auto;padding-left:10px;font:11px var(--mono);font-style:normal}
+.sector-pop p{margin-top:5px;font:9.5px/1.6 var(--mono);color:var(--muted)}
+.sector-pop p:empty{display:none}
+.sector-pop button{margin-top:7px;padding:0;font:9.5px var(--mono);color:var(--cyan);cursor:pointer}
+.sector-pop .up,.sector-heat-summary .up{color:var(--cyan)}
+.sector-pop .down,.sector-heat-summary .down{color:var(--pink)}
+.sector-pop .flat{color:var(--muted)}
+
+/* Sector heatmap dialog. */
+.sector-heat-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid var(--line);border-radius:8px;margin-bottom:14px}
+.sector-heat-summary>div{padding:11px 13px;border-left:1px solid var(--line)}
+.sector-heat-summary>div:first-child{border-left:0}
+.sector-heat-summary span{display:block;font:9px var(--mono);letter-spacing:.6px;color:var(--muted);text-transform:uppercase}
+.sector-heat-summary strong{display:block;margin-top:5px;font:400 17px var(--mono);font-variant-numeric:tabular-nums}
+.sector-heat-legend{display:flex;align-items:center;gap:8px;margin-bottom:10px;font:9px var(--mono);color:var(--muted)}
+.sector-heat-legend i{width:110px;height:6px;border-radius:3px;background:linear-gradient(90deg,rgba(233,30,99,.8),rgba(255,255,255,.06) 50%,rgba(0,188,212,.8))}
+.sector-heat-legend small{margin-left:auto;font-size:9px}
+.sector-heat{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:3px}
+.sector-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:46px;padding:5px 3px;border-radius:3px;color:var(--text);text-decoration:none;font-family:var(--mono)}
+.sector-tile:hover{outline:1px solid rgba(255,255,255,.6);outline-offset:-1px}
+.sector-tile b{font-size:11px;font-weight:500}
+.sector-tile em{font-size:9.5px;font-style:normal;font-variant-numeric:tabular-nums;opacity:.9}
+@media(max-width:700px){.sector-heat-summary{grid-template-columns:repeat(6,minmax(0,1fr))}.sector-heat-summary>div{grid-column:span 2;order:1;border-top:1px solid var(--line)}.sector-heat-summary>div:is(:first-child,:last-child){grid-column:span 3;order:0;border-top:0}.sector-heat-summary>div:last-child{border-left:1px solid var(--line)}.sector-heat-summary>div:nth-child(2){border-left:0}.sector-heat-summary strong{font-size:15px}.sector-heat{grid-template-columns:repeat(auto-fill,minmax(60px,1fr))}.sector-heat-legend small{display:none}}
+
+/* EIDO popup (client/eido.mjs). */
+.eido-returns{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid var(--line);border-radius:8px;margin:14px 0}
+.eido-returns>div{padding:10px 12px;border-left:1px solid var(--line)}
+.eido-returns>div:first-child{border-left:0}
+.eido-returns span{display:block;font:9px var(--mono);letter-spacing:.5px;color:var(--muted);text-transform:uppercase}
+.eido-returns strong{display:block;margin-top:5px;font:400 15px var(--mono);font-variant-numeric:tabular-nums}
+.eido-range-bar{position:relative;height:6px;margin:16px 4px 8px;border-radius:3px;background:linear-gradient(90deg,var(--pink),#555 50%,var(--cyan))}
+.eido-range-bar i{position:absolute;top:-5px;width:2px;height:16px;margin-left:-1px;background:var(--text);box-shadow:0 0 0 2px var(--bg)}
+.eido-range-labels{display:flex;justify-content:space-between;font:11px var(--mono);font-variant-numeric:tabular-nums}
+.eido-range-labels small{display:block;font-size:9px;color:var(--muted);margin-top:2px}
+.eido-range-labels span:last-child{text-align:right}
+.eido-chart-wrap{position:relative}
+.eido-chart{display:block;width:100%;height:auto;touch-action:pan-y}
+.eido-grid{stroke:rgba(85,85,85,.35);stroke-width:1}
+.eido-axis{fill:#929292;stroke:none;font:10px var(--mono)}
+.eido-cursor{stroke:rgba(255,255,255,.4);stroke-width:1}
+.eido-cursor[hidden]{display:none}
+.eido-readout{position:absolute;top:4px;left:8px;padding:3px 7px;border-radius:4px;background:rgba(19,19,19,.9);font:10px var(--mono);font-variant-numeric:tabular-nums}
+.eido-readout[hidden]{display:none}
+.eido-readout em{font-style:normal}
+@media(max-width:700px){.eido-returns{grid-template-columns:repeat(6,minmax(0,1fr))}.eido-returns>div{grid-column:span 2}.eido-returns>div:nth-child(n+4){grid-column:span 3;border-top:1px solid var(--line)}.eido-returns>div:nth-child(4){border-left:0}}
+
+/* Inline SVG charts in the commodity and rates popups (client/mini-chart.mjs). */
+.mc-chart{display:block;width:100%;height:auto;touch-action:pan-y;cursor:crosshair}
+.mc-grid{stroke:rgba(85,85,85,.35);stroke-width:1}
+.mc-zero{stroke:#777}
+.mc-axis{fill:#929292;stroke:none;font:10px var(--mono)}
+.mc-cursor{stroke:rgba(255,255,255,.35);stroke-width:1}
+.mc-spread-label{fill:#00bcd4;stroke:none;font:600 11px var(--mono)}
+
+/* Rates popup (client/rates-dialog.mjs). */
+button.macro-row{width:100%;text-align:inherit;font:inherit;color:inherit;cursor:pointer}
+.rates-channels ul{margin:0;padding:4px 0 2px 18px;display:grid;gap:7px;font-size:11.5px;line-height:1.6;color:var(--muted)}
+.rates-channels b{color:var(--text);font-weight:500}
+
+
+/* Sentiment and Agenda: side by side with equal height on desktop, the same
+   anatomy (heading, two rows with a date line, footer) so they also match when
+   stacked on phones. */
+.agenda-panels{align-items:stretch}
+
+/* Sentiment panel: two headlines (client/sentiment.mjs). */
+.news-panel{display:flex;flex-direction:column;padding:17px 18px 14px;min-width:0}
+.news-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.news-head h2{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:400;white-space:nowrap}
+.news-head h2 svg{width:14px;height:14px;color:var(--muted);fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.news-updated{font:9px var(--mono);color:var(--faint);white-space:nowrap}
+.news-list{list-style:none;margin:0;padding:0}
+.news-list li{border-top:1px solid var(--line)}
+.news-list li:first-child{border-top:0}
+.news-list a{display:grid;grid-template-columns:4px 1fr;column-gap:9px;padding:10px 0;font-size:12px;line-height:1.5;color:var(--text);text-decoration:none}
+.news-list a::before{content:"";grid-row:1;width:4px;height:4px;margin-top:8px;border-radius:50%;background:var(--muted)}
+.news-list a:hover{color:var(--cyan)}
+.news-list a:hover::before{background:var(--cyan)}
+.news-list time{grid-column:2;margin-top:3px;font:9.5px var(--mono);color:var(--muted)}
+.news-empty{padding:14px 0;font:10px var(--mono);color:var(--muted)}
+.news-source,.agenda-foot{margin-top:auto;padding-top:9px;border-top:1px solid var(--line);font:9px/1.6 var(--mono);color:var(--faint)}
+
+/* Combined agenda: the summary mirrors the Sentiment panel; open, it shows the
+   economic calendar and corporate action as tabs. */
+.agenda-combined{display:flex;flex-direction:column}
+.agenda-combined:not([open])>.agenda-summary{flex:1}
+.agenda-combined>.agenda-summary{display:flex;flex-direction:column;padding:17px 18px 14px}
+.agenda-combined .agenda-summary-heading{margin-bottom:6px}
+.agenda-combined .agenda-summary h2{font-weight:400}
+.agenda-preview-row{display:flex;flex-direction:column;gap:2px;padding:10px 0;border-top:1px solid var(--line)}
+.agenda-summary-heading+.agenda-preview-row{border-top:0}
+.agenda-preview-row>small{font:9px var(--mono);letter-spacing:.6px;color:var(--faint)}
+.agenda-combined .agenda-preview-row .agenda-preview{display:flex;flex-direction:column;align-items:flex-start;gap:3px;margin:0;font-size:12px;line-height:1.5}
+.agenda-combined .agenda-preview-row .agenda-preview>small{font:9.5px var(--mono);color:var(--muted)}
+.agenda-foot{margin-top:auto}
+.agenda-combined[open] .agenda-foot{display:none}
+.agenda-tabs{display:flex;gap:4px;padding:12px 18px 0}
+.agenda-tabs button{padding:6px 10px;border-radius:3px;font:10px var(--mono);color:var(--muted);cursor:pointer}
+.agenda-tabs button[aria-selected=true]{color:var(--text);background:rgba(0,188,212,.12);box-shadow:inset 0 -1px var(--cyan)}
+.agenda-pane[hidden]{display:none}
+@media(max-width:600px){
+ .news-panel,.agenda-combined>.agenda-summary{padding:14px 14px 12px}
+ .news-list a,.agenda-combined .agenda-preview-row .agenda-preview{font-size:13px;line-height:1.45}
+ .news-list a,.agenda-preview-row{padding:11px 0}
+ .agenda-tabs{padding:10px 14px 0}
+ .agenda-tabs button{flex:1;text-align:center;padding:8px 6px}
+}
+
+/* Space between the snapshot cards and the chart / market panel row (IHSG and
+   Bitcoin views), the same rhythm as the panels below. */
+.market-snapshot{margin-bottom:22px}
+@media(max-width:850px){.market-snapshot{margin-bottom:16px}}
+@media(max-width:600px){.market-snapshot{margin-bottom:12px}}
+
+/* Sentiment collapse chevron: phones only (shown in the block below). */
+.news-chevron{display:none;width:14px;height:14px;color:var(--muted);transform:rotate(180deg);transition:transform .15s;margin-left:8px;flex:none}
+.news-head-end{display:flex;align-items:center;margin-left:auto}
+
+/* Phones: compact KPI cards, popups that do not take the full screen height, and a
+   Sentiment panel that collapses to its title. */
+@media(max-width:600px){
+ /* KPI cards keep only the essentials: label, value, change and sparkline. The
+    source/date line, the Δ window label and the label icons are in the popup. */
+ .market-snapshot{gap:6px}
+ .market-snapshot>.snapshot-stat{padding:10px 11px 8px}
+ .market-snapshot .snapshot-label{font-size:8px;letter-spacing:.5px;min-height:16px}
+ .market-snapshot .snapshot-label>svg{display:none}
+ .market-snapshot .snapshot-label .metric-period{font-size:0;gap:0;padding:2px 4px;min-height:16px}
+ .market-snapshot .snapshot-label .metric-period .ui-icon{width:10px;height:10px}
+ .market-snapshot .snapshot-main{margin-top:4px;gap:5px;align-items:baseline;flex-wrap:nowrap}
+ .market-snapshot .snapshot-main>strong{font-size:16px;letter-spacing:-.2px;white-space:nowrap}
+ .market-snapshot .snapshot-main>strong>span{font-size:9px;margin-left:1px}
+ .market-snapshot .snapshot-change{font-size:8px;white-space:nowrap}
+ .market-snapshot .snapshot-change small{display:none}
+ .market-snapshot .snapshot-stat>p{display:none}
+ .market-snapshot .btc-ratios>span+span{display:none}
+ .market-snapshot .snapshot-change .color-dot{display:none}
+ .market-snapshot>.snapshot-stat .metric-spark{height:16px;padding-top:6px;opacity:.7}
+
+ .metric-detail-dialog,.agenda-dialog,.btc-settings-dialog,.setup-dialog{max-height:78dvh}
+
+ .news-head{cursor:pointer;user-select:none}
+ .news-head .news-chevron{display:block}
+ .news-panel.is-collapsed .news-head{margin-bottom:0}
+ .news-panel.is-collapsed .news-chevron{transform:rotate(0)}
+ .news-panel.is-collapsed :is(.news-list,.news-source,.news-updated){display:none}
+}

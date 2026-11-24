@@ -1,0 +1,20 @@
+/* Shared controls for zoomable charts: series toggles and drag cursor. */
+.chart-series{display:inline-block;padding:1px 6px;margin:0 -2px;border:1px solid transparent;border-radius:4px;color:inherit;font:inherit;cursor:pointer;white-space:nowrap}
+.chart-series:hover{border-color:var(--line)}
+.chart-series:focus-visible{outline:1px solid var(--cyan);outline-offset:1px}
+.chart-series[aria-pressed=false]{opacity:.38}
+.chart-series[aria-pressed=false] b{text-decoration:line-through}
+.chart-zoomable{cursor:grab;user-select:none;-webkit-user-select:none;touch-action:pan-y}
+.chart-dragging .chart-zoomable{cursor:grabbing}
+.chart-hint{font:9.5px/1.8 var(--mono);color:var(--faint);margin-left:auto}
+
+/* Price-tick flash (client/flash.mjs): cyan when a value rises, pink when it falls. */
+.flash-up,.flash-down{border-radius:3px}
+.flash-up{animation:flash-up 1.2s ease-out}
+.flash-down{animation:flash-down 1.2s ease-out}
+@keyframes flash-up{0%{background-color:rgba(0,188,212,.55);box-shadow:0 0 0 3px rgba(0,188,212,.55)}100%{background-color:transparent;box-shadow:0 0 0 3px transparent}}
+@keyframes flash-down{0%{background-color:rgba(233,30,99,.55);box-shadow:0 0 0 3px rgba(233,30,99,.55)}100%{background-color:transparent;box-shadow:0 0 0 3px transparent}}
+.sector-chip.flash-up{animation-name:flash-up-chip}.sector-chip.flash-down{animation-name:flash-down-chip}
+@keyframes flash-up-chip{0%{background-color:rgba(0,188,212,.7)}100%{background-color:var(--tint)}}
+@keyframes flash-down-chip{0%{background-color:rgba(233,30,99,.7)}100%{background-color:var(--tint)}}
+@media(prefers-reduced-motion:reduce){.flash-up,.flash-down{animation-duration:.01s}}

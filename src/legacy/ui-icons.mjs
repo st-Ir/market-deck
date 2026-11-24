@@ -1,0 +1,2 @@
+export function iconMarkup(name){return '<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-'+name+'"/></svg>'}
+export function appendIcon(node,name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('ui-icon');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');const use=document.createElementNS('http://www.w3.org/2000/svg','use');use.setAttribute('href','#i-'+name);svg.append(use);node.append(svg)}

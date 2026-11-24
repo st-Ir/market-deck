@@ -1,0 +1,9 @@
+.deck-navigation{display:flex;align-items:center;gap:3px;padding:3px;border:1px solid var(--line);border-radius:6px;flex:none;margin-left:auto}
+.deck-navigation a{display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 12px;border-radius:3px;text-decoration:none;color:var(--muted);font:10px var(--mono);white-space:nowrap;min-height:34px}
+.deck-navigation a svg{width:13px;height:13px}.deck-navigation a:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.deck-navigation a[aria-current=page]{color:var(--text);background:rgba(0,188,212,.07);box-shadow:inset 0 -1px var(--cyan)}
+.deck-navigation a:focus-visible{outline:1px solid var(--cyan);outline-offset:2px}
+.workspace-header:has(.deck-navigation){gap:18px}.workspace-header:has(.deck-navigation) .workspace-meta{margin-left:10px}
+@media(max-width:1050px){.workspace-header:has(.deck-navigation) .workspace-meta{display:none}}
+@media(max-width:600px){.workspace-header:has(.deck-navigation){gap:10px}.deck-navigation{padding:2px;gap:2px}.deck-navigation a{font-size:9.5px;gap:5px;padding:8px;min-height:34px}.deck-navigation a svg{width:12px;height:12px}}
+@media(max-width:360px){.deck-navigation a{padding:7px;font-size:9px}.deck-navigation a svg{display:none}.workspace-header:has(.deck-navigation) .identity{gap:7px}}
