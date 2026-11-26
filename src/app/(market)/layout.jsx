@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/next';
 import '@/styles/style.css';
 import '@/styles/agenda.css';
 import '@/styles/market-stats.css';
@@ -23,7 +24,10 @@ export const viewport = { themeColor: '#131313' };
 export default function MarketLayout({ children }) {
   return (
     <html lang="id">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
