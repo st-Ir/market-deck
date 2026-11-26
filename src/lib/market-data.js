@@ -18,6 +18,7 @@ import { macroLiquidity } from '@/lib/macro-liquidity';
 import { loadMacroGrowthInflation } from '@/lib/macro-growth-inflation';
 import { macroRisk } from '@/lib/macro-risk';
 import { macroScores } from '@/lib/macro-scores';
+import { fredObservations } from '@/lib/fred-observations';
 import { tradingViewChart, tradingViewHistories, tradingViewQuotes } from '@/lib/tradingview';
 import { commodityStocks } from '@/lib/commodity-stocks';
 import { marketNews } from '@/lib/news';
@@ -546,8 +547,9 @@ async function liveBtcM2() {
   const { us, ea, jp } = monthlyM2Seed.series;
   const [usM2, eaM2, jpM2, cnM2, fx] = await Promise.all([
     monthlyM2Series('AS', us.months, async () => {
-      const csv = await getText(us.sourceUrl);
-      return csvRecords(csv).map((row) => [row.observation_date?.slice(0, 7), Number(row.M2SL)]);
+      const start = Object.keys(us.months).sort()[0] + '-01';
+      const { rows } = await fredObservations('M2SL', start);
+      return rows.map(({ date, value }) => [date.slice(0, 7), value]);
     }),
     monthlyM2Series('euro area', ea.months, async () => {
       const csv = await getText(ea.sourceUrl);

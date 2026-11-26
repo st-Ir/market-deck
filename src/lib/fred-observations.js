@@ -19,8 +19,9 @@ async function apiObservations(series, start, key) {
   const response = await fetch('https://api.stlouisfed.org/fred/series/observations?' + params, {
     cache: 'no-store',
     signal: AbortSignal.timeout(TIMEOUT),
+    redirect: 'error',
   });
-  if (!response.ok) return [];
+  if (!response.ok) throw new Error('HTTP ' + response.status);
   const data = await response.json();
   return observations((data.observations ?? []).map(({ date, value }) => [date, value]), start);
 }
@@ -44,8 +45,18 @@ export async function fredObservations(series, start) {
   const reachesArchive = (rows) => rows.length > 0 && rows.at(-1).date >= archiveEnd;
   const key = process.env.FRED_API_KEY?.trim();
   if (key) {
-    const rows = await apiObservations(series, start, key).catch(() => []);
-    if (reachesArchive(rows)) return { rows, archivedAt: null };
+    try {
+      const rows = await apiObservations(series, start, key);
+      if (reachesArchive(rows)) return { rows, archivedAt: null };
+      console.warn(`[fred] ${series}: API resmi tidak memberi observasi yang cukup baru`);
+    } catch (error) {
+      // Fetch errors can contain the request URL, which includes the API key.
+      const status = /^HTTP \d{3}$/.test(error.message) ? error.message
+        : error.name === 'TimeoutError' ? 'timeout' : 'gagal terhubung atau membaca respons';
+      console.warn(`[fred] ${series}: API resmi ${status}`);
+    }
+  } else if (series === 'BAMLH0A0HYM2') {
+    console.warn('[fred] FRED_API_KEY tidak terbaca pada deployment ini');
   }
   const sources = [
     'https://fred.stlouisfed.org/graph/fredgraph.csv',
