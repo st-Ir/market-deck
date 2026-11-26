@@ -1,3 +1,5 @@
+import { fredObservations } from './fred-observations';
+
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 const THREE_YEARS_IN_WEEKS = 156;
@@ -103,23 +105,8 @@ function m2Indicator(feed, now) {
   };
 }
 
-async function reserveBalances(now) {
-  const fromYear = new Date(now).getUTCFullYear() - 7;
-  const response = await fetch('https://fred.stlouisfed.org/graph/fredgraph.csv?id=WRESBAL&cosd=' + fromYear + '-01-01', {
-    cache: 'no-store',
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!response.ok) throw new Error('FRED WRESBAL HTTP ' + response.status);
-  const lines = (await response.text()).trim().split(/\r?\n/);
-  if (!/^observation_date,WRESBAL$/i.test(lines[0].replace(/^\uFEFF/, ''))) throw new Error('Kolom WRESBAL tidak tersedia');
-  return lines.slice(1).map((line) => {
-    const [observation, value] = line.split(',');
-    return { date: observation, value: Number(value) };
-  });
-}
-
-function reserveIndicator(points, now) {
-  const values = ordered(points, now);
+function reserveIndicator(reserves, now) {
+  const values = ordered(reserves?.rows, now);
   const latest = values.at(-1);
   const byTime = new Map(values.map((row) => [row.time, row]));
   const comparison = (row) => byTime.get(row.time - 13 * WEEK);
@@ -146,6 +133,7 @@ function reserveIndicator(points, now) {
     period: previous ? previous.date + ' – ' + latest.date : undefined,
     source: 'Federal Reserve H.4.1 · FRED',
     sourceUrl: RESERVES_URL,
+    ...(reserves?.archivedAt && { delivery: 'archive', archivedAt: reserves.archivedAt }),
     score: isCurrent ? calibration.score : null,
     historyMaxAgeDays: 21,
     history: ranked.filter((row) => Number.isFinite(row.value)).map(({ date, value, score }) => ({ date, value, score })),
@@ -160,7 +148,8 @@ function reserveIndicator(points, now) {
 }
 
 export async function macroLiquidity(loadEndpoint, now = Date.now()) {
-  const [money, reserves] = await Promise.allSettled([loadEndpoint('btc-m2'), reserveBalances(now)]);
+  const fromYear = new Date(now).getUTCFullYear() - 7;
+  const [money, reserves] = await Promise.allSettled([loadEndpoint('btc-m2'), fredObservations('WRESBAL', fromYear + '-01-01')]);
   const indicators = [
     m2Indicator(money.status === 'fulfilled' ? money.value : null, now),
     reserveIndicator(reserves.status === 'fulfilled' ? reserves.value : null, now),

@@ -74,7 +74,11 @@ function sourceLink(label, url) {
 
 function state(key, score) {
   const model = definitions[key];
-  if (!isScore(score)) return { label: data || failed ? 'Data belum cukup' : 'Memuat data…', tone: 'neutral' };
+  if (!isScore(score)) {
+    if (!data && !failed) return { label: 'Memuat data…', tone: 'neutral' };
+    if (!data?.models[key]?.indicators?.length) return { label: 'Sumber tidak tersedia', tone: 'neutral' };
+    return { label: 'Data belum cukup', tone: 'neutral' };
+  }
   const rounded = Math.round(score * 10) / 10;
   if (rounded < 40) return { label: model.low, tone: model.inverted ? 'positive' : 'negative' };
   if (rounded > 60) return { label: model.high, tone: model.inverted ? 'negative' : 'positive' };
@@ -113,8 +117,12 @@ function renderDashboard() {
     card.querySelector('.macro-state span').textContent = reading.label;
     card.querySelector('.macro-card-score').textContent = isScore(score) ? formatScore(score) + ' / 100' : '—';
     const cardDate = model?.asOf ? 'Obs. terbaru ' + dateLabel(model.asOf, shortDate) : '';
-    const status = model?.status === 'partial' ? 'Sebagian data' : failed && data ? 'Data terakhir' : '';
-    card.querySelector('.macro-card-date').textContent = [cardDate, status].filter(Boolean).join(' · ');
+    const coverage = !isScore(score) && model?.indicators?.length
+      ? model.availableIndicators + ' / ' + model.indicators.length + ' indikator'
+      : '';
+    const usesArchive = model?.indicators?.some((row) => row.delivery === 'archive' && row.effectiveWeight > 0);
+    const status = failed && data ? 'Data terakhir' : usesArchive ? 'Memakai arsip' : model?.status === 'partial' ? 'Sebagian data' : '';
+    card.querySelector('.macro-card-date').textContent = [cardDate, coverage, status].filter(Boolean).join(' · ');
     const meter = card.querySelector('.macro-score-meter');
     meter.hidden = !isScore(score);
     if (!meter.hidden) {
@@ -136,8 +144,8 @@ function renderComparison() {
     comparison: keys.map((id) => ({
       id,
       title: definitions[id].title,
-      points: data?.models[id].history,
-      forecast: data?.models[id].forecast,
+      points: data?.models[id]?.history,
+      forecast: data?.models[id]?.forecast,
       hidden: hiddenMacroSeries.has(id),
       ...comparisonStyles[id],
     })),
@@ -178,9 +186,10 @@ function historyMarkup(series, indicators) {
 
 function indicatorMarkup(row, forecast = false) {
   const provenance = row.source && sourceLink(row.source, row.sourceUrl);
+  const archive = row.delivery === 'archive' && (row.archivedAt ? 'Arsip ' + dateLabel(row.archivedAt) : 'Arsip');
   const observation = (forecast
-    ? [nowcastKinds[row.kind], row.observedAt && 'Observasi ' + dateLabel(row.observedAt), provenance]
-    : [row.period && esc(row.period), row.asOf && (!row.period || row.period === 'Penutupan harian') && dateLabel(row.asOf), provenance]
+    ? [nowcastKinds[row.kind], row.observedAt && 'Observasi ' + dateLabel(row.observedAt), provenance, archive]
+    : [row.period && esc(row.period), row.asOf && (!row.period || row.period === 'Penutupan harian') && dateLabel(row.asOf), provenance, archive]
   ).filter(Boolean).join(' · ');
   const linked = (row.sources ?? []).map(({ label, url }) => sourceLink(label, url)).join(' · ');
   const notes = [row.reference, row.note].filter(Boolean).map(esc).join(' ');
@@ -369,7 +378,7 @@ async function load() {
     const result = await fetch('/api/macro-scores', { signal: AbortSignal.timeout(45_000) });
     if (!result.ok) throw new Error();
     const payload = await result.json();
-    if (payload.schema !== 1 || !payload.rules || !keys.every((key) => Array.isArray(payload.models?.[key]?.indicators))) throw new Error();
+    if (payload.schema !== 1 || !payload.rules || !keys.some((key) => Array.isArray(payload.models?.[key]?.indicators))) throw new Error();
     data = payload;
     failed = false;
   } catch {

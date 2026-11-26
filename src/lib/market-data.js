@@ -616,7 +616,7 @@ async function loadMacroScores() {
   const inputs = await Promise.allSettled([
     macroLiquidity(loadEndpoint).then((liquidity) => ({ liquidity })),
     loadMacroGrowthInflation(),
-    macroRisk(loadEndpoint).then((risk) => ({ risk })),
+    macroRisk(loadEndpoint, yahooDaily).then((risk) => ({ risk })),
   ]);
   const models = {};
   for (const input of inputs) {

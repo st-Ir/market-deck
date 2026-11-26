@@ -55,6 +55,8 @@ Endpoint **live** (cache server singkat; widget di halaman memuat ulang tiap 60 
 
 Data harian Yahoo `IDR=X` tidak dipakai untuk riwayat karena memuat penutupan di luar rentang harian (lonjakan palsu ±3%).
 
+**Global Macro** memperbarui seri FRED melalui API resmi jika `FRED_API_KEY` tersedia. CSV publik FRED dan ALFRED dicoba sebagai cadangan. Jika sumber tersebut gagal, seri ekonomi dan cadangan Fed memakai arsip bertanggal selama observasinya masih memenuhi batas usia model. Risk Appetite dapat memakai VIX Cboe dan penutupan S&P 500 dari Yahoo Finance saat FRED tidak tersedia. Untuk menambahkan kunci FRED di Vercel, isi `FRED_API_KEY` di **Settings → Environment Variables** untuk Production, lalu redeploy.
+
 ### Net asing & nilai transaksi (BEI)
 
 `/api/idx-summary` dan `/api/idx-turnover` membaca ringkasan saham harian BEI (`idx.id/primary/TradingSummary/GetStockSummary`, seluruh saham). Riwayat awal berasal dari arsip BEI di `src/data/idx-daily.json`. Setelah 16.00 WIB sesi hari itu dicek ulang sampai terbit.

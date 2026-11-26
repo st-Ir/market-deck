@@ -1,3 +1,5 @@
+import { fredObservations } from './fred-observations';
+
 const DAY = 86_400_000;
 const LOOKBACK = 252;
 const SMA_LENGTH = 100;
@@ -39,17 +41,8 @@ const EQUITY = {
 
 async function fredCloses(series, today) {
   const from = new Date(Date.parse(today) - 4 * 365 * DAY).toISOString().slice(0, 10);
-  const response = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}&cosd=${from}`, {
-    cache: 'no-store',
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!response.ok) throw new Error(`FRED ${series} HTTP ${response.status}`);
-  const [header, ...lines] = (await response.text()).trim().split(/\r?\n/);
-  if (header.split(',')[1]?.trim() !== series) throw new Error(`FRED ${series} tidak cocok dengan permintaan`);
-  return lines.flatMap((line) => {
-    const [date, raw] = line.split(',');
-    return raw && raw !== '.' ? [{ date, value: Number(raw) }] : [];
-  });
+  const { rows } = await fredObservations(series, from);
+  return validCloses(rows, today);
 }
 
 function validCloses(rows, today) {
@@ -66,7 +59,7 @@ function recent(date, today) {
 }
 
 async function vixCloses(loadEndpoint, today) {
-  const fromFred = await fredCloses('VIXCLS', today).then((rows) => validCloses(rows, today)).catch(() => []);
+  const fromFred = await fredCloses('VIXCLS', today);
   if (fromFred.length > LOOKBACK && recent(fromFred.at(-1)?.date, today)) return { rows: fromFred, meta: VIX };
   const existing = await loadEndpoint('vix').catch(() => null);
   const fromCboe = validCloses(existing?.points?.map(({ date, close }) => ({ date, value: close })) ?? [], today);
@@ -74,6 +67,21 @@ async function vixCloses(loadEndpoint, today) {
     return { rows: fromCboe, meta: { ...VIX, source: 'Cboe', sourceUrl: 'https://www.cboe.com/tradable-products/vix/vix-historical-data/' } };
   }
   return { rows: fromFred, meta: VIX };
+}
+
+async function equityCloses(loadYahooDaily, today) {
+  const fromFred = await fredCloses('SP500', today);
+  if (fromFred.length >= LOOKBACK + SMA_LENGTH && recent(fromFred.at(-1)?.date, today)) {
+    return { rows: fromFred, meta: EQUITY };
+  }
+  const yahoo = await loadYahooDaily('^GSPC', '5y').catch(() => null);
+  // Yahoo includes the ongoing US session in its daily series.
+  const fromYahoo = validCloses(yahoo?.points.filter(({ date }) => date < today)
+    .map(({ date, close }) => ({ date, value: close })) ?? [], today);
+  if (fromYahoo.length >= LOOKBACK + SMA_LENGTH && fromYahoo.at(-1).date >= (fromFred.at(-1)?.date ?? '')) {
+    return { rows: fromYahoo, meta: { ...EQUITY, source: 'Yahoo Finance · S&P 500', sourceUrl: 'https://finance.yahoo.com/quote/%5EGSPC/' } };
+  }
+  return { rows: fromFred, meta: EQUITY };
 }
 
 function equityTrend(rows) {
@@ -134,12 +142,12 @@ function indicator(meta, rows, today) {
   };
 }
 
-export async function macroRisk(loadEndpoint) {
+export async function macroRisk(loadEndpoint, loadYahooDaily) {
   const today = marketDate.format(new Date());
   const [vix, credit, equity] = await Promise.all([
     vixCloses(loadEndpoint, today),
-    fredCloses('BAMLH0A0HYM2', today).then((rows) => validCloses(rows, today)).catch(() => []),
-    fredCloses('SP500', today).then((rows) => validCloses(rows, today)).catch(() => []),
+    fredCloses('BAMLH0A0HYM2', today),
+    equityCloses(loadYahooDaily, today),
   ]);
   return {
     scope: 'Pasar AS · volatilitas, kredit, dan ekuitas',
@@ -151,7 +159,7 @@ export async function macroRisk(loadEndpoint) {
         value: value * 100,
         readings: [{ label: 'Spread sumber', value, unit: '%' }],
       })), today),
-      indicator(EQUITY, equityTrend(equity), today),
+      indicator(equity.meta, equityTrend(equity.rows), today),
     ],
   };
 }

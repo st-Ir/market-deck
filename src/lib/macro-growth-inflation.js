@@ -1,5 +1,6 @@
 import { loadGrowthNowcast } from './macro-growth-nowcast';
 import { loadInflationNowcast } from './macro-inflation-nowcast';
+import { fredObservations } from './fred-observations';
 
 const DAY = 86_400_000;
 const FRED = 'https://fred.stlouisfed.org';
@@ -35,33 +36,6 @@ const isoDay = (time) => new Date(time).toISOString().slice(0, 10);
 const periodLabel = (date, monthsPerPeriod) => monthsPerPeriod === 3
   ? 'Triwulan ' + Math.ceil(Number(date.slice(5, 7)) / 3) + ' ' + date.slice(0, 4)
   : MONTH_LABEL.format(Date.parse(date));
-
-function parseFred(csv, series) {
-  const [header, ...lines] = csv.trim().split(/\r?\n/);
-  const [dateColumn, seriesColumn] = header.split(',');
-  if (!/^(observation_date|date)$/i.test(dateColumn) || seriesColumn !== series) {
-    throw new Error('Format seri FRED ' + series + ' tidak dikenal');
-  }
-  const points = new Map();
-  for (const line of lines) {
-    const [date, raw] = line.split(',');
-    const value = Number(raw);
-    if (/^\d{4}-(0[1-9]|1[0-2])-01$/.test(date) && Number.isFinite(value) && value > 0) {
-      points.set(date, { date, value });
-    }
-  }
-  return [...points.values()].sort((a, b) => a.date.localeCompare(b.date));
-}
-
-async function loadFred(series, now) {
-  const start = String(now.getUTCFullYear() - 12) + '-01-01';
-  const response = await fetch(FRED + '/graph/fredgraph.csv?id=' + series + '&cosd=' + start, {
-    cache: 'no-store',
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!response.ok) throw new Error('FRED ' + series + ' HTTP ' + response.status);
-  return parseFred(await response.text(), series);
-}
 
 function observation(spec, points, now, lookback, annualize = 1) {
   const usable = points.filter((point) => observationEnd(point.date, spec.monthsPerPeriod) <= now);
@@ -284,14 +258,21 @@ function inflationForecast(nowcasts, points, indicators, now) {
 
 export async function loadMacroGrowthInflation(now = new Date()) {
   const series = [...new Set([...growthSpecs, ...inflationSpecs].map((spec) => spec.series))];
+  const start = (now.getUTCFullYear() - 12) + '-01-01';
   const [entries, gdpNowcast, pceNowcasts] = await Promise.all([
-    Promise.all(series.map(async (id) => [id, await loadFred(id, now).catch(() => [])])),
+    Promise.all(series.map(async (id) => [id, await fredObservations(id, start)])),
     loadGrowthNowcast(now).catch(() => null),
     loadInflationNowcast(now).catch(() => []),
   ]);
-  const points = new Map(entries);
-  const growth = growthSpecs.map((spec) => growthIndicator(spec, points.get(spec.series), now));
-  const inflation = inflationSpecs.map((spec) => inflationIndicator(spec, points.get(spec.series), now));
+  const points = new Map(entries.map(([id, { rows }]) => [id, rows.filter(({ date }) => date.endsWith('-01'))]));
+  const archives = new Map(entries.map(([id, { archivedAt }]) => [id, archivedAt]));
+  const indicators = (specs, calculate) => specs.map((spec) => {
+    const result = calculate(spec, points.get(spec.series), now);
+    const archivedAt = archives.get(spec.series);
+    return archivedAt ? { ...result, delivery: 'archive', archivedAt } : result;
+  });
+  const growth = indicators(growthSpecs, growthIndicator);
+  const inflation = indicators(inflationSpecs, inflationIndicator);
   return {
     growth: {
       scope: 'Aktivitas ekonomi AS',
