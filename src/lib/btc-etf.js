@@ -1,15 +1,15 @@
 // US spot Bitcoin ETF flows from the SoSoValue OpenAPI (free key, SOSOVALUE_API_KEY).
 // The API only serves the most recent month, so live rows are merged into the
 // stored history: the dated snapshot (Farside, since Apr 2026) plus every day
-// fetched before, kept on disk so the history keeps growing past that window.
+// fetched before, kept on disk while the cache is available.
 // Flows settle T+1: today's row exists with null flows and is skipped.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import snapshot from '@/data/btc-etf.json';
+import { marketCachePath, writeMarketCache } from '@/lib/market-cache';
 
 const BASE = 'https://openapi.sosovalue.com/openapi/v1';
 const SOSO_PAGE = 'https://sosovalue.com/assets/etf/us-btc-spot';
-const STORE = path.join(process.cwd(), '.cache', 'btc-etf.json');
+const STORE = marketCachePath('btc-etf.json');
 const TIMEOUT = 15000;
 const DAY = 86_400_000;
 const NEW_YORK = new Intl.DateTimeFormat('en-CA', {
@@ -21,7 +21,7 @@ const NEW_YORK_TIME = new Intl.DateTimeFormat('en-GB', {
 
 async function soso(route) {
   const key = process.env.SOSOVALUE_API_KEY;
-  if (!key) throw new Error('SOSOVALUE_API_KEY belum diisi di .env.local');
+  if (!key) throw new Error('SOSOVALUE_API_KEY belum dikonfigurasi');
   const response = await fetch(BASE + route, { cache: 'no-store', headers: { 'x-soso-api-key': key }, signal: AbortSignal.timeout(TIMEOUT) });
   const json = await response.json().catch(() => null);
   if (!response.ok || json?.code !== 0) throw new Error(`SoSoValue ${route} → HTTP ${response.status} ${json?.message ?? ''}`.trim());
@@ -30,15 +30,12 @@ async function soso(route) {
 
 async function readStore() {
   try {
-    return JSON.parse(await readFile(STORE, 'utf8'));
+    const store = JSON.parse(await readFile(STORE, 'utf8'));
+    if (Array.isArray(store?.points)) return store;
   } catch {
-    return { points: [] };
+    // Use the bundled snapshot when the cache is missing or unreadable.
   }
-}
-
-async function writeStore(store) {
-  await mkdir(path.dirname(STORE), { recursive: true });
-  await writeFile(STORE, JSON.stringify(store));
+  return { points: [] };
 }
 
 function num(value) {
@@ -100,7 +97,7 @@ export async function liveBtcEtf() {
     merged.set(point.date, point);
   }
   const points = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
-  await writeStore({ points }).catch((error) => console.warn('[btc-etf] cache disk gagal ditulis:', error.message));
+  await writeMarketCache(STORE, { points }).catch((error) => console.warn('[btc-etf] cache disk gagal ditulis:', error.message));
   const asOf = points.at(-1).date;
 
   return {

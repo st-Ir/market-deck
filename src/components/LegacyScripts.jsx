@@ -33,8 +33,14 @@ const pages = {
 export default function LegacyScripts({ page }) {
   useEffect(() => {
     (async () => {
-      for (const load of pages[page]) await load();
-    })().catch((error) => console.error('Gagal memuat modul halaman', error));
+      for (const load of pages[page]) {
+        try {
+          await load();
+        } catch (error) {
+          console.error('Gagal memuat modul halaman', error);
+        }
+      }
+    })();
   }, [page]);
   return null;
 }

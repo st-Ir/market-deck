@@ -1,8 +1,9 @@
 // Server-side data for /api/*. Most endpoints have a live source and a dated
-// snapshot (src/data) used when the source fails. BEI data (idx.id) has no
-// snapshot: its sessions are cached on disk instead. BTC ETF flows come from
+// snapshot (src/data) used when the source fails. BEI data (idx.id) starts from
+// a bundled session history and caches new sessions on disk. BTC ETF flows come from
 // SoSoValue (src/lib/btc-etf.js) on top of the Farside snapshot. The economic
 // calendar is an official schedule and stays a dated snapshot.
+import { after } from 'next/server';
 import { idxFearGreed, idxForeignSummary, idxSectorStocks, idxSectors, idxTurnover } from '@/lib/idx-daily';
 import { idxLive } from '@/lib/idx-live';
 import { ihsgOhlc } from '@/lib/ihsg-ohlc';
@@ -24,6 +25,7 @@ import btcEtf from '@/data/btc-etf.json';
 import btcM2 from '@/data/btc-m2.json';
 import btcSpot from '@/data/btc-spot.json';
 import chinaSeed from '@/data/m2-china-seed.json';
+import monthlyM2Seed from '@/data/m2-monthly-seed.json';
 import contextPrices from '@/data/context-prices.json';
 import economicCalendar from '@/data/economic-calendar.json';
 import fearGreed from '@/data/fear-greed.json';
@@ -33,7 +35,6 @@ import us10yQuote from '@/data/us10y-quote.json';
 import vix from '@/data/vix.json';
 
 const TIMEOUT = 10000;
-const SLOW = 30000; // monthly statistics APIs (FRED, ECB, BOJ) can take longer
 const getJson = (url, timeout = TIMEOUT) => fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(timeout) }).then((r) => {
   if (!r.ok) throw new Error(`${url} → HTTP ${r.status}`);
   return r.json();
@@ -161,7 +162,7 @@ async function liveEthBtc() {
   };
 }
 
-async function liveUs10y() {
+async function cboeUs10y() {
   const { timestamp, data } = await getJson('https://cdn.cboe.com/api/global/delayed_quotes/quotes/_TNX.json');
   // TNX is quoted as yield × 10.
   const value = data.current_price / 10;
@@ -175,6 +176,61 @@ async function liveUs10y() {
     generatedAt: new Date().toISOString(),
     points: [],
     delivery: 'feed',
+  };
+}
+
+async function yahooUs10y() {
+  const { meta, rows } = await yahooChart('^TNX', '1d', '1m');
+  const value = meta.regularMarketPrice;
+  const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? null;
+  if (!Number.isFinite(value)) throw new Error('Yahoo ^TNX: kuotasi kosong');
+  return {
+    ...us10yQuote,
+    source: 'Yahoo Finance · Cboe TNX',
+    sourceUrl: 'https://finance.yahoo.com/quote/%5ETNX/',
+    value,
+    previousClose,
+    changeBp: Number.isFinite(previousClose) ? (value - previousClose) * 100 : null,
+    asOf: new Date(meta.regularMarketTime * 1000).toISOString(),
+    generatedAt: new Date().toISOString(),
+    points: rows.map((row) => ({ time: new Date(row.t).toISOString(), value: row.close })),
+    delivery: 'feed',
+  };
+}
+
+async function liveUs10y() {
+  const cutoff = Date.now() - 4 * 86400e3;
+  const yahoo = await yahooUs10y().catch(() => null);
+  if (yahoo && Date.parse(yahoo.asOf) >= cutoff) return yahoo;
+
+  const [cboe, curve] = await Promise.all([
+    cboeUs10y().catch(() => null),
+    loadEndpoint('treasury-curve'),
+  ]);
+  const observations = curve.points.filter((point) => Number.isFinite(point.yields['10Y']));
+  const last = observations.at(-1);
+  const newest = [yahoo, cboe].filter((quote) => Number.isFinite(quote?.value))
+    .sort((a, b) => Date.parse(b.asOf) - Date.parse(a.asOf))[0];
+  if (newest && (!last || newest.asOf.slice(0, 10) >= last.date)) {
+    return Date.parse(newest.asOf) >= cutoff ? newest : { ...newest, delivery: 'archive' };
+  }
+  if (!last) throw new Error('US 10Y: kuotasi dan par yield harian tidak tersedia');
+
+  const value = last.yields['10Y'];
+  const previousClose = observations.at(-2)?.yields['10Y'] ?? null;
+  return {
+    ...us10yQuote,
+    source: 'U.S. Treasury · EOD',
+    sourceUrl: curve.sourceUrl,
+    value,
+    previousClose,
+    changeBp: previousClose === null ? null : (value - previousClose) * 100,
+    asOf: last.date,
+    timePrecision: 'day',
+    generatedAt: curve.generatedAt,
+    frequency: 'daily',
+    points: [],
+    delivery: curve.delivery,
   };
 }
 
@@ -200,23 +256,12 @@ async function liveTreasuryCurve() {
 }
 
 async function liveTreasurySeed() {
-  const [{ meta, rows }, curve] = await Promise.all([yahooChart('^TNX', '1d', '1m'), loadEndpoint('treasury-curve')]);
-  const value = meta.regularMarketPrice;
-  const previousClose = meta.chartPreviousClose ?? meta.previousClose;
+  const [quote, curve] = await Promise.all([loadEndpoint('us10y-quote'), loadEndpoint('treasury-curve')]);
   return {
     ...treasurySeed,
-    quote: {
-      ...treasurySeed.quote,
-      value,
-      previousClose,
-      changeBp: (value - previousClose) * 100,
-      asOf: new Date(meta.regularMarketTime * 1000).toISOString(),
-      generatedAt: new Date().toISOString(),
-      points: rows.map((row) => ({ time: new Date(row.t).toISOString(), value: row.close })),
-      delivery: 'feed',
-    },
+    quote,
     curve,
-    delivery: 'feed',
+    delivery: quote.delivery === 'feed' || curve.delivery === 'feed' ? 'feed' : 'snapshot',
   };
 }
 
@@ -470,48 +515,67 @@ const latestUpTo = (series, month) => {
 };
 
 async function chinaM2() {
-  const months = new Map(Object.entries(chinaSeed.months));
-  try {
-    const html = await fetch('https://tradingeconomics.com/china/money-supply-m2', { cache: 'no-store', headers: BROWSER_UA, signal: AbortSignal.timeout(TIMEOUT) }).then((r) => r.text());
-    // "...increased to 359628.97 CNY Billion in September from 356808.36 CNY Billion in August of 2026."
-    const match = html.match(/to ([\d.]+) CNY Billion in (\w+) from ([\d.]+) CNY Billion in (\w+) of (\d{4})/);
-    if (match) {
-      const [, latest, latestName, previous, previousName, year] = match;
-      const latestIndex = MONTHS.indexOf(latestName), previousIndex = MONTHS.indexOf(previousName);
-      const latestMonth = `${latestIndex < previousIndex ? Number(year) + 1 : year}-${String(latestIndex + 1).padStart(2, '0')}`;
-      const previousMonth = `${year}-${String(previousIndex + 1).padStart(2, '0')}`;
-      // CNY billion → 100 million yuan; keep verified seed months as they are.
-      if (!months.has(previousMonth)) months.set(previousMonth, Number(previous) * 10);
-      if (!months.has(latestMonth)) months.set(latestMonth, Number(latest) * 10);
-    }
-  } catch (error) {
-    console.warn('[api/btc-m2] Trading Economics China M2 gagal:', error.message);
-  }
-  return new Map([...months].sort(([a], [b]) => (a < b ? -1 : 1)));
+  const response = await fetch('https://tradingeconomics.com/china/money-supply-m2', { cache: 'no-store', headers: BROWSER_UA, signal: AbortSignal.timeout(TIMEOUT) });
+  if (!response.ok) throw new Error(`Trading Economics → HTTP ${response.status}`);
+  const html = await response.text();
+  // "...increased to 359628.97 CNY Billion in September from 356808.36 CNY Billion in August of 2026."
+  const match = html.match(/to ([\d.]+) CNY Billion in (\w+) from ([\d.]+) CNY Billion in (\w+) of (\d{4})/);
+  if (!match) throw new Error('Rilis M2 China tidak ditemukan');
+  const [, latest, latestName, previous, previousName, year] = match;
+  const latestIndex = MONTHS.indexOf(latestName), previousIndex = MONTHS.indexOf(previousName);
+  if (latestIndex < 0 || previousIndex < 0) throw new Error('Periode M2 China tidak dikenal');
+  const latestMonth = `${latestIndex < previousIndex ? Number(year) + 1 : year}-${String(latestIndex + 1).padStart(2, '0')}`;
+  const previousMonth = `${year}-${String(previousIndex + 1).padStart(2, '0')}`;
+  // CNY billion → 100 million yuan; keep verified seed months as they are.
+  return [[previousMonth, Number(previous) * 10], [latestMonth, Number(latest) * 10]]
+    .filter(([month]) => !Object.hasOwn(chinaSeed.months, month));
+}
+
+async function monthlyM2Series(key, archive, load) {
+  const live = await load().then((rows) => rows.filter(([month, value]) => /^\d{4}-\d{2}$/.test(month)
+    && Number.isFinite(value) && value > 0)).catch((error) => {
+    console.warn(`[api/btc-m2] seri ${key} gagal, memakai arsip:`, error.message);
+    return [];
+  });
+  const months = new Map([...Object.entries(archive), ...live].sort(([a], [b]) => a.localeCompare(b)));
+  return { months, liveMonths: new Set(live.map(([month]) => month)) };
 }
 
 async function liveBtcM2() {
   const start = btcM2.points[0].date;
-  const fromMonth = shiftMonth(start.slice(0, 7), -4);
-  const [fred, ecbM2, fx, boj, cn] = await Promise.all([
-    getText(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=M2SL&cosd=${fromMonth}-01`, SLOW),
-    getText(`https://data-api.ecb.europa.eu/service/data/BSI/M.U2.N.V.M20.X.1.U2.2300.Z01.E?startPeriod=${fromMonth}&format=csvdata&detail=dataonly`, SLOW),
+  const { us, ea, jp } = monthlyM2Seed.series;
+  const [usM2, eaM2, jpM2, cnM2, fx] = await Promise.all([
+    monthlyM2Series('AS', us.months, async () => {
+      const csv = await getText(us.sourceUrl);
+      return csvRecords(csv).map((row) => [row.observation_date?.slice(0, 7), Number(row.M2SL)]);
+    }),
+    monthlyM2Series('euro area', ea.months, async () => {
+      const csv = await getText(ea.sourceUrl);
+      return csvRecords(csv).map((row) => [row.TIME_PERIOD, Number(row.OBS_VALUE)]);
+    }),
+    monthlyM2Series('Jepang', jp.months, async () => {
+      const boj = await getJson(jp.sourceUrl);
+      const values = boj.RESULTSET?.[0]?.VALUES;
+      if (!values) throw new Error('Respons Bank of Japan kosong');
+      return values.SURVEY_DATES.map((date, index) => [
+        String(date).replace(/^(\d{4})(\d{2})$/, '$1-$2'),
+        Number(values.VALUES[index]),
+      ]);
+    }),
+    monthlyM2Series('China', chinaSeed.months, chinaM2),
     // ECB reference rates; Frankfurter serves the same series far faster than the ECB API.
-    getJson(`https://api.frankfurter.dev/v1/${shiftMonth(start.slice(0, 7), -1)}-01..?from=EUR&to=USD,JPY,CNY`, SLOW),
-    getJson(`https://www.stat-search.boj.or.jp/api/v1/getDataCode?format=json&lang=en&db=MD02&startDate=${fromMonth.replace('-', '')}&code=MAM1NAM2M2MO`, SLOW),
-    chinaM2(),
+    getJson(`https://api.frankfurter.dev/v1/${shiftMonth(start.slice(0, 7), -1)}-01..?from=EUR&to=USD,JPY,CNY`),
   ]);
-  const us = new Map(csvRecords(fred).filter((r) => r.M2SL && r.M2SL !== '.').map((r) => [r.observation_date.slice(0, 7), Number(r.M2SL)]));
-  const ea = new Map(csvRecords(ecbM2).map((r) => [r.TIME_PERIOD, Number(r.OBS_VALUE)]));
-  const values = boj.RESULTSET[0].VALUES;
-  const jp = new Map(values.SURVEY_DATES.map((d, i) => [`${String(d).slice(0, 4)}-${String(d).slice(4)}`, Number(values.VALUES[i])]).filter(([, v]) => Number.isFinite(v)));
-  const rates = fx.rates;
-  const fxDates = Object.keys(rates).filter((d) => rates[d].USD && rates[d].JPY && rates[d].CNY).sort();
+  const monthly = { us: usM2, ea: eaM2, cn: cnM2, jp: jpM2 };
+  const rates = fx.rates ?? {};
+  const fxDates = Object.keys(rates).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)
+    && ['USD', 'JPY', 'CNY'].every((currency) => Number.isFinite(rates[date]?.[currency]) && rates[date][currency] > 0)).sort();
   const asOf = fxDates.at(-1);
+  if (fxDates[0] > start || !asOf || asOf < btcM2.asOf) throw new Error('Riwayat kurs acuan ECB belum lengkap');
 
   const points = [];
   let fxIndex = 0;
-  let used = null;
+  let used;
   for (let t = Date.parse(start + 'T00:00:00Z'); t <= Date.parse(asOf + 'T00:00:00Z'); t += 86400000) {
     const date = isoDate(t);
     while (fxIndex + 1 < fxDates.length && fxDates[fxIndex + 1] <= date) fxIndex++;
@@ -519,23 +583,31 @@ async function liveBtcM2() {
     if (fxDate > date) continue;
     const r = rates[fxDate];
     const month = shiftMonth(date.slice(0, 7), -2);
-    used = { us: latestUpTo(us, month), ea: latestUpTo(ea, month), cn: latestUpTo(cn, month), jp: latestUpTo(jp, month) };
-    if (Object.values(used).some((v) => !v)) continue;
+    const available = Object.fromEntries(Object.entries(monthly).map(([key, series]) => [key, latestUpTo(series.months, month)]));
+    if (Object.values(available).some((v) => !v)) continue;
+    used = available;
     const value = used.us[1] / 1e3 // USD billion
       + used.ea[1] * 1e6 * r.USD / 1e12 // EUR million
       + used.cn[1] * 1e8 / (r.CNY / r.USD) / 1e12 // 100 million yuan
       + used.jp[1] * 1e8 / (r.JPY / r.USD) / 1e12; // 100 million yen
     points.push({ date, value, fxDate });
   }
-  const components = Object.fromEntries(Object.entries(btcM2.components).map(([key, meta]) => [key, { ...meta, referenceMonth: used[key][0] }]));
-  components.cn.sourceUrl = 'https://tradingeconomics.com/china/money-supply-m2';
+  if (points.length < 2) throw new Error('Riwayat M2 belum lengkap');
+  const components = Object.fromEntries(Object.entries(btcM2.components).map(([key, meta]) => {
+    const referenceMonth = used[key][0];
+    const live = monthly[key].liveMonths.has(referenceMonth);
+    return [key, { ...meta, referenceMonth, delivery: live ? 'feed' : 'snapshot' }];
+  }));
+  if (components.cn.delivery === 'feed') components.cn.sourceUrl = 'https://tradingeconomics.com/china/money-supply-m2';
+  const archived = Object.values(components).filter((component) => component.delivery === 'snapshot')
+    .map(({ label, referenceMonth }) => `${label} ${referenceMonth}`);
   return {
     ...btcM2,
     asOf,
     generatedAt: new Date().toISOString(),
     components,
     points,
-    refreshNote: 'AS (FRED), euro area (ECB), Jepang (BOJ) dan kurs ECB diambil live. China memakai tabel bulanan terverifikasi ditambah dua bulan terbaru dari Trading Economics; bulan yang belum terbit memakai angka terakhir.',
+    refreshNote: archived.length ? `Kurs ECB diperbarui. Observasi M2 dari arsip: ${archived.join(', ')}.` : 'Kurs ECB dan observasi M2 bulanan diperbarui dari sumber masing-masing.',
     delivery: 'feed',
   };
 }
@@ -601,7 +673,7 @@ const endpoints = {
   'market-news': { live: marketNews, ttl: 10 * 60e3 },
   'treasury-curve': { snapshot: treasuryCurve, live: liveTreasuryCurve, ttl: 60 * 60e3 },
   'treasury-seed': { snapshot: treasurySeed, live: liveTreasurySeed, ttl: 60e3 },
-  'us10y-quote': { snapshot: us10yQuote, live: liveUs10y, ttl: 60e3 },
+  'us10y-quote': { snapshot: us10yQuote, live: liveUs10y, ttl: 60e3, fresh: true },
   'usd-idr': { live: liveUsdIdr, ttl: 30e3, fresh: true },
   vix: { snapshot: vix, live: liveVix, ttl: 15 * 60e3 },
 };
@@ -640,7 +712,14 @@ export async function loadEndpoint(name) {
   }
   if (hit) {
     if (Date.now() - hit.at >= endpoint.ttl) {
-      refresh(name, endpoint).catch((error) => console.warn(`[api/${name}] pembaruan gagal, data lama dipertahankan:`, error.message));
+      after(async () => {
+        if (cache.get(name) !== hit) return;
+        try {
+          await refresh(name, endpoint);
+        } catch (error) {
+          console.warn(`[api/${name}] pembaruan gagal, data lama dipertahankan:`, error.message);
+        }
+      });
     }
     return hit.data;
   }
@@ -648,6 +727,7 @@ export async function loadEndpoint(name) {
     return await refresh(name, endpoint);
   } catch (error) {
     console.warn(`[api/${name}] sumber live gagal, memakai snapshot:`, error.message);
-    return endpoint.snapshot ?? { schema: 1, status: 'unavailable', reason: error.message };
+    if (endpoint.snapshot) return { ...endpoint.snapshot, delivery: 'snapshot' };
+    return { schema: 1, status: 'unavailable', reason: error.message };
   }
 }

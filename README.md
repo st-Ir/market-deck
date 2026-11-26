@@ -32,7 +32,7 @@ Endpoint **live** (cache server singkat; widget di halaman memuat ulang tiap 60 
 | --- | --- |
 | `/api/usd-idr` | Riwayat kurs referensi ECB (via Frankfurter), IHSG Yahoo `^JKSE`, kuotasi intraday Yahoo `IDR=X` (hanya bila selisih < 1,5% dari ECB) |
 | `/api/vix` | Cboe VIX CSV |
-| `/api/us10y-quote` | Cboe TNX delayed |
+| `/api/us10y-quote` | Yahoo Finance `^TNX`, dengan kuotasi tertunda Cboe yang masih baru dan par yield harian U.S. Treasury sebagai cadangan |
 | `/api/treasury-seed`, `/api/treasury-curve` | Yahoo `^TNX` intraday, U.S. Treasury CSV |
 | `/api/context-prices` | TradingView (endpoint scanner publik, tidak resmi): ICE Newcastle coal, Bursa Malaysia FCPO, ICE Brent, LME nikel, TVC emas; penundaan bursa ditampilkan di tile. Cadangan: tabel intraday Trading Economics |
 | `/api/macro-id` | TradingView: TVC:ID10Y (yield SBN 10Y, realtime), spread terhadap TVC:US10Y (realtime), AMEX:EIDO (tertunda 15 mnt). Cadangan EOD: Trading Economics + Yahoo. `releaseIndicator()` untuk rilis bulanan disimpan untuk Global Macro |
@@ -57,15 +57,17 @@ Data harian Yahoo `IDR=X` tidak dipakai untuk riwayat karena memuat penutupan di
 
 ### Net asing & nilai transaksi (BEI)
 
-`/api/idx-summary` dan `/api/idx-turnover` membaca ringkasan saham harian BEI (`idx.id/primary/TradingSummary/GetStockSummary`, seluruh saham). Sesi disimpan di `.cache/idx-daily.json`; setelah 16.00 WIB sesi hari itu dicek ulang sampai terbit.
+`/api/idx-summary` dan `/api/idx-turnover` membaca ringkasan saham harian BEI (`idx.id/primary/TradingSummary/GetStockSummary`, seluruh saham). Riwayat awal berasal dari arsip BEI di `src/data/idx-daily.json`. Setelah 16.00 WIB sesi hari itu dicek ulang sampai terbit.
 
 - **Nilai transaksi** = Σ (Value + NonRegularValue), definisi resmi BEI (30 Okt 2026: 11,64 T, sama dengan laporan BEI).
 - **Net asing** diestimasi: BEI menerbitkan beli/jual asing sebagai volume, jadi tiap saham dinilai dengan VWAP pasar reguler. Uji 12 Nov 2026: +508,9 M vs +510,5 M yang dilaporkan untuk pasar reguler.
 
-**ETF Bitcoin** (`/api/btc-etf`, `src/lib/btc-etf.js`): SoSoValue OpenAPI (perlu `SOSOVALUE_API_KEY` gratis; API hanya memberi 1 bulan terakhir, settle T+1) digabung di atas snapshot Farside `src/data/btc-etf.json`; riwayat gabungan disimpan di `.cache/btc-etf.json`. Cache 30 menit, 14 request per penyegaran.
+**ETF Bitcoin** (`/api/btc-etf`, `src/lib/btc-etf.js`): SoSoValue OpenAPI (perlu `SOSOVALUE_API_KEY` gratis; API hanya memberi 1 bulan terakhir, settle T+1) digabung di atas snapshot Farside `src/data/btc-etf.json`. Cache 30 menit, 14 request per penyegaran. Untuk pembaruan otomatis di Vercel, isi `SOSOVALUE_API_KEY` di **Settings → Environment Variables** untuk Production, lalu redeploy.
+
+Cache sesi BEI dan riwayat gabungan ETF disimpan di `.cache/` saat dijalankan lokal. Di Vercel, cache disimpan di `/tmp`; instance baru mulai dengan snapshot yang disertakan dalam proyek.
 
 **Masih snapshot**: `/api/economic-calendar` berisi jadwal resmi dan tetap snapshot bertanggal.
 
-Data live di-cache di memori server: permintaan pertama menunggu sumber, berikutnya langsung dilayani dari cache dan diperbarui di latar belakang setelah kedaluwarsa.
+Data live disimpan di memori server. Setelah cache kedaluwarsa, endpoint yang mengutamakan kesegaran menunggu sumber, sementara endpoint lainnya mengirim data yang tersedia dan menjadwalkan penyegaran setelah respons.
 
 **Chart:** IHSG dan Bitcoin digambar dengan Lightweight Charts (`src/client/market-chart.mjs`), tanpa desimal. IHSG: `/api/ihsg-ohlc[-5m]` (candle Yahoo ^JKSE, candle terakhir dari feed live BEI, tiap 15 detik). Bitcoin: `/api/btc-ohlc[-5m]` (Binance) lalu stream kline publik Binance per tick. Interval 1D/5m dan legenda OHLC muncul saat tombol pengaturan chart aktif. Status pasar di header chart memakai jadwal di `src/client/market-hours.mjs` (Sen–Kam 09:00–12:00 & 13:00–15:59, Jum 09:00–11:30 & 14:00–15:59).

@@ -7,7 +7,40 @@ const tone=n=>typeof n!=='number'?'':n<0?'treasury-negative':'treasury-positive'
 const tile=(label,value)=>'<div><span>'+label+'</span><strong>'+value+'</strong></div>';
 let quote,curve,intraday,loading=false,tab='curve',range='1D',selectedDate,trigger;
 function spark(values){if(!values?.length)return '';const min=Math.min(...values),span=Math.max(...values)-min||1;return '<polyline points="'+values.map((v,i)=>(i/Math.max(1,values.length-1)*130).toFixed(2)+','+(25-(v-min)/span*22).toFixed(2)).join(' ')+'" fill="none" stroke="#00bcd4" stroke-width="1.3"/>'}
-function drawCard(){const card=host.querySelector('[data-open-us10y]');if(!card)return;const fallback=curve?.points.at(-1),q=quote||(fallback?{value:fallback.yields['10Y'],changeBp:null,asOf:fallback.date,timePrecision:'day',source:'U.S. Treasury · EOD'}:null);if(!q)return;card.querySelector('[data-us10y-value]').textContent=pct(q.value);const change=card.querySelector('[data-us10y-change]');change.textContent=bp(q.changeBp);change.className=tone(q.changeBp);change.title='Perubahan yield terhadap penutupan pembanding penyedia; 1 bp = 0,01 poin persentase';const age=(Date.now()-Date.parse(q.asOf))/86400000;card.querySelector('[data-us10y-stamp]').textContent=(age>4?'Arsip · ':'')+(quote?(quote.source.startsWith('Yahoo')?'Yahoo Finance':'Cboe · delayed'):'Treasury · EOD')+' · '+stamp(q);card.dataset.asOf=q.asOf;const values=q===quote&&quote.points?.length?quote.points.slice(-90).map(p=>p.value):(curve?.points.slice(-20).map(p=>p.yields['10Y'])||[]);card.querySelector('.treasury-card-spark').innerHTML=spark(values)}
+function currentQuote() {
+ const daily = curve?.points.filter((point) => Number.isFinite(point.yields['10Y']));
+ const latest = daily?.at(-1);
+ if (!latest || (quote && Date.parse(quote.asOf) >= Date.parse(latest.date))) return quote;
+ const previous = daily.at(-2);
+ return {
+  value: latest.yields['10Y'],
+  changeBp: previous ? (latest.yields['10Y'] - previous.yields['10Y']) * 100 : null,
+  asOf: latest.date,
+  timePrecision: 'day',
+  source: 'U.S. Treasury · EOD',
+  delivery: curve.delivery,
+ };
+}
+function quoteLabel(reading) {
+ const archived = reading.delivery === 'snapshot' || Date.now() - Date.parse(reading.asOf) > 4 * 86400000;
+ return (archived ? 'Arsip · ' : '') + reading.source + ' · ' + stamp(reading);
+}
+function drawCard() {
+ const card = host.querySelector('[data-open-us10y]');
+ const reading = currentQuote();
+ if (!card || !reading) return;
+ card.querySelector('[data-us10y-value]').textContent = pct(reading.value);
+ const change = card.querySelector('[data-us10y-change]');
+ change.textContent = bp(reading.changeBp);
+ change.className = tone(reading.changeBp);
+ change.title = 'Perubahan yield terhadap penutupan pembanding penyedia. 1 bp = 0,01 poin persentase.';
+ card.querySelector('[data-us10y-stamp]').textContent = quoteLabel(reading);
+ card.dataset.asOf = reading.asOf;
+ const values = reading.points?.length
+  ? reading.points.slice(-90).map((point) => point.value)
+  : curve?.points.slice(-20).map((point) => point.yields['10Y']);
+ card.querySelector('.treasury-card-spark').innerHTML = spark(values?.filter(Number.isFinite));
+}
 function chart(series,{curveMode=false,previous=[]}={}){
  if(!series.length)return '<p class="treasury-empty">Data grafik belum tersedia.</p>';
  const w=820,h=270,left=47,right=23,top=22,bottom=38,width=w-left-right,height=h-top-bottom,all=[...series,...previous].map(p=>p.value),min=Math.min(...all)-.025,max=Math.max(...all)+.025,y=v=>top+(max-v)/(max-min)*height;
@@ -22,7 +55,9 @@ function chart(series,{curveMode=false,previous=[]}={}){
 }
 function render(){
  const latest=curve?.points.at(-1);if(!selectedDate&&latest)selectedDate=latest.date;
- body.innerHTML=(quote?'<div class="treasury-live"><div><strong>'+pct(quote.value)+'</strong><span class="'+tone(quote.changeBp)+'">'+bp(quote.changeBp)+'</span></div><small>'+quote.source+' · '+stamp(quote)+'</small></div>':'')+'<div class="treasury-toolbar"><div class="history-periods" role="group" aria-label="Tampilan Treasury"><button type="button" data-treasury-tab="curve" aria-pressed="'+(tab==='curve')+'">Kurva tenor</button><button type="button" data-treasury-tab="history" aria-pressed="'+(tab==='history')+'">Grafik US 10Y</button></div>'+(tab==='curve'&&latest?'<label class="treasury-date-label">Tanggal <input id="treasury-date" type="date" aria-label="Tanggal kurva Treasury" min="'+curve.points[0].date+'" max="'+latest.date+'" value="'+selectedDate+'"></label>':'')+'</div>';
+ const reading=currentQuote();
+ body.innerHTML=(reading?'<div class="treasury-live"><div><strong>'+pct(reading.value)+'</strong><span class="'+tone(reading.changeBp)+'">'+bp(reading.changeBp)+'</span></div><small></small></div>':'')+'<div class="treasury-toolbar"><div class="history-periods" role="group" aria-label="Tampilan Treasury"><button type="button" data-treasury-tab="curve" aria-pressed="'+(tab==='curve')+'">Kurva tenor</button><button type="button" data-treasury-tab="history" aria-pressed="'+(tab==='history')+'">Grafik US 10Y</button></div>'+(tab==='curve'&&latest?'<label class="treasury-date-label">Tanggal <input id="treasury-date" type="date" aria-label="Tanggal kurva Treasury" min="'+curve.points[0].date+'" max="'+latest.date+'" value="'+selectedDate+'"></label>':'')+'</div>';
+ if(reading)body.querySelector('.treasury-live small').textContent=quoteLabel(reading);
  if(tab==='curve'){
   const point=curve?.points.find(p=>p.date===selectedDate),index=curve?.points.indexOf(point),previous=index>0?curve.points[index-1]:null;
   if(!point){body.innerHTML+='<p class="treasury-empty">Tidak ada publikasi Treasury pada tanggal ini. Pilih tanggal sesi lain.</p>';sources();return}
@@ -37,14 +72,50 @@ function render(){
  }
  sources();
 }
-function sources(){body.innerHTML+='<details class="treasury-sources"><summary>Sumber & pembaruan</summary><p>Kuotasi mengikuti data Cboe TNX melalui Yahoo Finance; pembaruan dicoba setiap 60 detik saat panel BTC terbuka. Bila gagal, digunakan feed tertunda Cboe atau snapshot bertanggal. Waktu yang ditampilkan adalah waktu observasi, bukan waktu pengambilan. Data penyedia dapat tertunda.</p><p>Kurva tenor dan riwayat harian adalah nominal par yield resmi U.S. Treasury, diterbitkan per sesi. Kurva ini mengukur yield menurut tenor; grafik US 10Y mengukur perubahan yield terhadap waktu. Kuotasi indeks dan par yield resmi dapat berbeda. Sel kosong tidak diisi nol. 1 bp = 0,01 poin persentase.</p><p><a href="https://finance.yahoo.com/quote/%5ETNX/" target="_blank" rel="noopener noreferrer">Yahoo Finance</a> · <a href="https://www.cboe.com/us/indices/dashboard/tnx/" target="_blank" rel="noopener noreferrer">Cboe TNX</a> · <a href="'+(curve?.sourceUrl||'https://home.treasury.gov/resource-center/data-chart-center/interest-rates')+'" target="_blank" rel="noopener noreferrer">U.S. Treasury</a></p></details>'}
+function sources(){body.innerHTML+='<details class="treasury-sources"><summary>Sumber & pembaruan</summary><p>Kuotasi ^TNX dari Yahoo Finance diperbarui setiap 60 detik saat panel BTC terbuka. Cadangannya adalah data tertunda Cboe TNX, par yield harian U.S. Treasury, dan arsip bertanggal. Tanggal dan jam mengacu pada observasi penyedia.</p><p>U.S. Treasury menerbitkan kurva tenor dan riwayat par yield setiap sesi. Kuotasi indeks dan par yield resmi dapat berbeda. 1 bp = 0,01 poin persentase.</p><p><a href="https://finance.yahoo.com/quote/%5ETNX/" target="_blank" rel="noopener noreferrer">Yahoo Finance</a> · <a href="https://www.cboe.com/us/indices/dashboard/tnx/" target="_blank" rel="noopener noreferrer">Cboe TNX</a> · <a href="'+(curve?.sourceUrl||'https://home.treasury.gov/resource-center/data-chart-center/interest-rates')+'" target="_blank" rel="noopener noreferrer">U.S. Treasury</a></p></details>'}
 document.addEventListener('click',event=>{const button=event.target.closest('[data-open-us10y]');if(!button)return;trigger=button;selectedDate=curve?.asOf;tab='curve';render();dialog.showModal();document.body.classList.add('metric-modal-open');load()});
 document.getElementById('close-treasury').addEventListener('click',()=>dialog.close());dialog.addEventListener('close',()=>{document.body.classList.remove('metric-modal-open');if(trigger?.isConnected)trigger.focus()});dialog.addEventListener('click',event=>{if(event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close()});
 body.addEventListener('click',event=>{const button=event.target.closest('[data-treasury-tab],[data-treasury-range]');if(!button)return;if(button.dataset.treasuryTab)tab=button.dataset.treasuryTab;if(button.dataset.treasuryRange)range=button.dataset.treasuryRange;render()});
 body.addEventListener('change',event=>{if(event.target.id==='treasury-date'){selectedDate=event.target.value;render()}});
-async function load(){
- if(document.getElementById('market-snapshot').dataset.market!=='bitcoin'&&!dialog.open)return;drawCard();if(loading)return;loading=true;
- if(!quote||!curve){try{const response=await fetch('/api/treasury-seed');if(response.ok){const seed=await response.json();if(seed.schema===1){quote=quote||seed.quote;curve=curve||seed.curve;if(quote?.points?.length)intraday=quote;drawCard();if(dialog.open)render()}}}catch{}}
- await Promise.allSettled([['quote','/api/us10y-quote'],['curve','/api/treasury-curve']].map(async([kind,url])=>{try{const response=await fetch(url);if(!response.ok)throw new Error();const result=await response.json();if(result.schema!==1||result.unit!=='percent')throw new Error();if(kind==='quote'){if(!Number.isFinite(result.value))throw new Error();quote=result;if(result.points?.length)intraday=result}else{if(!result.points?.length)throw new Error();curve=result}drawCard()}catch{}}));loading=false;if(dialog.open)render();const label=host.querySelector('[data-us10y-stamp]');if(label&&!quote&&!curve)label.textContent='Sumber belum tersedia';
+function acceptQuote(reading) {
+ const time = Date.parse(reading?.asOf);
+ if (reading?.schema !== 1 || reading.unit !== 'percent' || !Number.isFinite(reading.value) || !Number.isFinite(time)) return;
+ if (!quote || time >= Date.parse(quote.asOf)) quote = reading;
+ if (reading.points?.length && (!intraday || time >= Date.parse(intraday.asOf))) intraday = reading;
+}
+function acceptCurve(reading) {
+ if (reading?.schema !== 1 || reading.unit !== 'percent' || !reading.points?.length) return;
+ if (!curve || reading.asOf >= curve.asOf) curve = reading;
+}
+async function readData(path) {
+ const response = await fetch(path);
+ if (response.ok) return response.json();
+}
+async function load() {
+ if (document.getElementById('market-snapshot').dataset.market !== 'bitcoin' && !dialog.open) return;
+ drawCard();
+ if (loading) return;
+ loading = true;
+ try {
+  if (!quote || !curve) {
+   const seed = await readData('/api/treasury-seed').catch(() => null);
+   if (seed?.schema === 1) {
+    acceptQuote({ ...seed.quote, delivery: seed.quote?.delivery ?? seed.delivery });
+    acceptCurve({ ...seed.curve, delivery: seed.curve?.delivery ?? seed.delivery });
+    drawCard();
+    if (dialog.open) render();
+   }
+  }
+  await Promise.allSettled([
+   readData('/api/us10y-quote').then(acceptQuote),
+   readData('/api/treasury-curve').then(acceptCurve),
+  ]);
+  drawCard();
+  if (dialog.open) render();
+  const label = host.querySelector('[data-us10y-stamp]');
+  if (label && !currentQuote()) label.textContent = 'Sumber belum tersedia';
+ } finally {
+  loading = false;
+ }
 }
 document.addEventListener('market-deck:market',load);setInterval(load,60000);load();

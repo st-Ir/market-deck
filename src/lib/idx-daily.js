@@ -4,8 +4,9 @@
 //   volumes, so each stock's net volume is valued at its regular-market VWAP.
 //   On 12 Nov 2026 this gave +508.9 bn vs +510.5 bn reported for the regular market.
 // Sessions are cached on disk; only missing days and today's session are fetched.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+import snapshot from '@/data/idx-daily.json';
+import { marketCachePath, writeMarketCache } from '@/lib/market-cache';
 
 const SUMMARY_URL = 'https://idx.id/primary/TradingSummary/GetStockSummary?length=9999&start=0&date=';
 const INDEX_URL = 'https://idx.id/primary/TradingSummary/GetIndexSummary?length=9999&start=0&date=';
@@ -16,7 +17,8 @@ export const SECTORS = {
 };
 const INDEX_CODES = ['COMPOSITE', 'LQ45', ...Object.keys(SECTORS)];
 export const SOURCE_PAGE = 'https://idx.id/id/data-pasar/ringkasan-perdagangan/ringkasan-saham/';
-const STORE = path.join(process.cwd(), '.cache', 'idx-daily.json');
+const STORE = marketCachePath('idx-daily.json');
+const SNAPSHOT_DATE = Object.keys(snapshot.days).sort().at(-1);
 const HISTORY_DAYS = 190; // calendar days (~125 sessions): MA, percentile and spike context
 const CLOSE_HOUR_WIB = 16;
 const CONCURRENCY = 4;
@@ -32,16 +34,16 @@ const addDays = (date, n) => new Date(Date.parse(date + 'T00:00:00Z') + n * 8640
 const isWeekday = (date) => ![0, 6].includes(new Date(date + 'T00:00:00Z').getUTCDay());
 
 async function readStore() {
+  const store = structuredClone(snapshot);
   try {
-    return JSON.parse(await readFile(STORE, 'utf8'));
+    const cached = JSON.parse(await readFile(STORE, 'utf8'));
+    for (const [date, session] of Object.entries(cached?.days ?? {})) {
+      if (session?.date === date && (!store.days[date] || !session.closed)) store.days[date] = session;
+    }
   } catch {
-    return { days: {} };
+    // The bundled archive gives a cold instance enough history for the cards.
   }
-}
-
-async function writeStore(store) {
-  await mkdir(path.dirname(STORE), { recursive: true });
-  await writeFile(STORE, JSON.stringify(store));
+  return store;
 }
 
 function summarize(date, rows) {
@@ -89,22 +91,22 @@ function summarize(date, rows) {
   };
 }
 
-async function rowsFor(url, date) {
-  const response = await fetch(url + date.replaceAll('-', ''), { cache: 'no-store', signal: AbortSignal.timeout(30000) });
+async function rowsFor(url, date, signal = AbortSignal.timeout(30000)) {
+  const response = await fetch(url + date.replaceAll('-', ''), { cache: 'no-store', signal });
   if (!response.ok) throw new Error(`BEI HTTP ${response.status}`);
   const json = await response.json();
   return (json.data || []).filter((r) => r.Date?.slice(0, 10) === date);
 }
 
 // IHSG, LQ45 and the eleven IDX-IC sector indices for one session.
-async function fetchIndices(date) {
-  const rows = await rowsFor(INDEX_URL, date);
+async function fetchIndices(date, signal) {
+  const rows = await rowsFor(INDEX_URL, date, signal);
   const wanted = rows.filter((r) => INDEX_CODES.includes(r.IndexCode));
   return wanted.length ? Object.fromEntries(wanted.map((r) => [r.IndexCode, { close: r.Close, previous: r.Previous, value: r.Value }])) : null;
 }
 
-async function fetchDay(date) {
-  const [rows, indices] = await Promise.all([rowsFor(SUMMARY_URL, date), fetchIndices(date)]);
+async function fetchDay(date, signal) {
+  const [rows, indices] = await Promise.all([rowsFor(SUMMARY_URL, date, signal), fetchIndices(date, signal)]);
   return rows.length ? { ...summarize(date, rows), indices } : null;
 }
 
@@ -113,6 +115,9 @@ let syncing = null;
 async function sync() {
   const store = await readStore();
   const now = wib();
+  // Bound cold-start work so a slow or unreachable upstream does not hide
+  // the bundled history behind a Vercel Function timeout.
+  const deadline = process.env.VERCEL === '1' ? AbortSignal.timeout(8_000) : undefined;
   const wanted = [];
   for (let date = now.date; date >= addDays(now.date, -HISTORY_DAYS); date = addDays(date, -1)) {
     if (!isWeekday(date) || (date === now.date && now.hour < CLOSE_HOUR_WIB)) continue;
@@ -123,9 +128,9 @@ async function sync() {
   let changed = false;
   // Sessions stored before index data was collected only need the indices.
   const indexless = Object.values(store.days).filter((d) => !d.closed && !d.indices && !wanted.includes(d.date)).map((d) => d.date);
-  for (let i = 0; i < indexless.length; i += CONCURRENCY) {
+  for (let i = 0; i < indexless.length && !deadline?.aborted; i += CONCURRENCY) {
     const batch = indexless.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(batch.map(fetchIndices));
+    const results = await Promise.allSettled(batch.map((date) => fetchIndices(date, deadline)));
     results.forEach((result, k) => {
       if (result.status === 'fulfilled' && result.value) {
         store.days[batch[k]].indices = result.value;
@@ -133,9 +138,9 @@ async function sync() {
       }
     });
   }
-  for (let i = 0; i < wanted.length; i += CONCURRENCY) {
+  for (let i = 0; i < wanted.length && !deadline?.aborted; i += CONCURRENCY) {
     const batch = wanted.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(batch.map(fetchDay));
+    const results = await Promise.allSettled(batch.map((date) => fetchDay(date, deadline)));
     results.forEach((result, k) => {
       if (result.status === 'rejected') {
         console.warn('[idx-daily]', batch[k], result.reason.message);
@@ -145,7 +150,9 @@ async function sync() {
       changed = true;
     });
   }
-  if (changed) await writeStore(store);
+  if (changed) {
+    await writeMarketCache(STORE, store).catch((error) => console.warn('[idx-daily] cache disk gagal ditulis:', error.message));
+  }
   return store;
 }
 
@@ -154,13 +161,14 @@ async function sessions() {
   const store = await syncing;
   const days = Object.values(store.days).filter((d) => !d.closed).sort((a, b) => (a.date < b.date ? -1 : 1));
   if (!days.length) throw new Error('ringkasan saham BEI belum tersedia');
-  return days;
+  const delivery = process.env.VERCEL === '1' && days.at(-1).date <= SNAPSHOT_DATE ? 'archive' : 'feed';
+  return { days, delivery };
 }
 
 // Same shape as the BEI investor archive, so the card, Harian/Mingguan, Δ20H
 // and the history dialog work unchanged.
 export async function idxForeignSummary() {
-  const days = await sessions();
+  const { days, delivery } = await sessions();
   return {
     schema: 1,
     market: 'ihsg',
@@ -183,12 +191,12 @@ export async function idxForeignSummary() {
       topSell: d.topSell,
       ihsg: d.indices?.COMPOSITE ? { close: d.indices.COMPOSITE.close, previous: d.indices.COMPOSITE.previous } : null,
     })),
-    delivery: 'feed',
+    delivery,
   };
 }
 
 export async function idxTurnover() {
-  const days = await sessions();
+  const { days, delivery } = await sessions();
   return {
     schema: 1,
     market: 'ihsg',
@@ -215,7 +223,7 @@ export async function idxTurnover() {
       topValue: d.topValue ?? [],
       method: 'stock-summary',
     })),
-    delivery: 'feed',
+    delivery,
   };
 }
 
@@ -226,7 +234,8 @@ const change = (now, then) => (Number.isFinite(now) && Number.isFinite(then) && 
 // live: idxLive() result; during a session newer than the last summary its index
 // levels stand in for today and the changes are measured against stored closes.
 export async function idxSectors(live) {
-  const days = (await sessions()).filter((d) => d.indices);
+  const { days: sessionsWithStocks, delivery } = await sessions();
+  const days = sessionsWithStocks.filter((d) => d.indices);
   if (!days.length) throw new Error('ringkasan indeks BEI belum tersedia');
   const last = days.at(-1);
   const intraday = live && live.date > last.date ? live : null;
@@ -256,7 +265,7 @@ export async function idxSectors(live) {
     generatedAt: new Date().toISOString(),
     benchmarks: [row('COMPOSITE', 'IHSG'), row('LQ45', 'LQ45')].filter(Boolean),
     sectors: Object.entries(SECTORS).map(([code, name]) => row(code, name)).filter(Boolean),
-    delivery: 'feed',
+    delivery: intraday ? 'feed' : delivery,
   };
 }
 
@@ -361,7 +370,9 @@ export function calculateIdxFearGreed(summaries, live, now = Date.now()) {
 }
 
 export async function idxFearGreed(live) {
-  return calculateIdxFearGreed(await sessions(), live);
+  const { days, delivery } = await sessions();
+  const result = calculateIdxFearGreed(days, live);
+  return { ...result, delivery: result.points[0].basis === 'intraday' ? 'feed' : delivery };
 }
 
 // Every stock of one IDX-IC sector with its price move, for the sector heatmap.
@@ -397,7 +408,8 @@ export async function idxSectorStocks(live) {
     asOf = live.date;
     liveTime = live.time;
   } else {
-    const last = (await sessions()).at(-1);
+    const { days } = await sessions();
+    const last = days.at(-1);
     quotes = (await rowsFor(SUMMARY_URL, last.date)).filter((r) => r.Frequency > 0).map((r) => ({ code: r.StockCode, price: r.Close, change: r.Previous ? (r.Close / r.Previous - 1) * 100 : 0, value: r.Value }));
     asOf = last.date;
   }
