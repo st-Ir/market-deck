@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/next';
 import '@/styles/style.css';
 import '@/styles/deck-navigation.css';
 import '@/styles/trading.css';
@@ -13,7 +14,10 @@ export const viewport = { themeColor: '#131313' };
 export default function TradingLayout({ children }) {
   return (
     <html lang="id">
-      <body className="trading-page">{children}</body>
+      <body className="trading-page">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
